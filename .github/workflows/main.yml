@@ -6,23 +6,74 @@ on:
       - master
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@master
-      - uses: actions/setup-node@v1
-      - uses: ./
-        id: publish
+      - uses: actions/checkout@v7
         with:
-          branch: master
-          github_token: '${{ secrets.GITHUB_TOKEN  }}'
-          source_folder: .github
-          target_folder: test
-          dry_run: true
-      - shell: bash
+          persist-credentials: false
+      - name: Check Bash syntax
+        run: bash -n entrypoint.sh
+      - name: Functional publication and HTTP authentication tests
         run: |
-          test -n "${{ steps.publish.outputs.commit_hash }}"
-          test -n "${{ steps.publish.outputs.working_directory }}"
+          python3 tests/test_publish.py
+          python3 tests/test_authentication.py
+      - name: Build the Docker Action
+        run: docker build -t publish-artifact-test .
+      - name: Functional publication tests through the Docker entrypoint
+        env:
+          PUBLISH_TEST_IMAGE: publish-artifact-test
+        run: python3 tests/test_publish.py
+      - name: Prepare a local destination for the actual Action
+        run: git init --bare .action-fixture/destination.git
+      - name: Publish with the actual Docker Action and runner outputs
+        uses: ./
+        id: publish
+        env:
+          INPUT_REMOTE: file:///github/workspace/.action-fixture/destination.git
+          # The fixture was created by the host runner; the Action runs as root.
+          GIT_CONFIG_COUNT: '1'
+          GIT_CONFIG_KEY_0: safe.directory
+          GIT_CONFIG_VALUE_0: /github/workspace/.action-fixture/destination.git
+        with:
+          branch: releases
+          github_token: local-fixture-token
+          source_folder: .github
+          working_directory: .action-fixture/checkout
+          no_delete: true
+      - name: Repeat unchanged publication with the actual Docker Action
+        uses: ./
+        id: unchanged
+        env:
+          INPUT_REMOTE: file:///github/workspace/.action-fixture/destination.git
+          GIT_CONFIG_COUNT: '1'
+          GIT_CONFIG_KEY_0: safe.directory
+          GIT_CONFIG_VALUE_0: /github/workspace/.action-fixture/destination.git
+        with:
+          branch: releases
+          github_token: local-fixture-token
+          source_folder: .github
+          working_directory: .action-fixture/unchanged
+          no_delete: true
+      - name: Verify runner outputs and remote contents
+        shell: bash
+        env:
+          COMMIT_HASH: ${{ steps.publish.outputs.commit_hash }}
+          WORKING_DIRECTORY: ${{ steps.publish.outputs.working_directory }}
+          UNCHANGED_HASH: ${{ steps.unchanged.outputs.commit_hash }}
+          UNCHANGED_DIRECTORY: ${{ steps.unchanged.outputs.working_directory }}
+        run: |
+          test -n "$COMMIT_HASH"
+          test -n "$WORKING_DIRECTORY"
+          test -n "$UNCHANGED_DIRECTORY"
+          test "$COMMIT_HASH" = "$UNCHANGED_HASH"
+          test "$COMMIT_HASH" = "$(git --git-dir=.action-fixture/destination.git rev-parse releases)"
+          test "$(git --git-dir=.action-fixture/destination.git rev-list --count releases)" = 1
+          git --git-dir=.action-fixture/destination.git show releases:workflows/main.yml > "$RUNNER_TEMP/published-main.yml"
+          cmp .github/workflows/main.yml "$RUNNER_TEMP/published-main.yml"
 
