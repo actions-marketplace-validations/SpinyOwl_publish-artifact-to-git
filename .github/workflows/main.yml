@@ -30,16 +30,17 @@ jobs:
           PUBLISH_TEST_IMAGE: publish-artifact-test
         run: python3 tests/test_publish.py
       - name: Prepare a local destination for the actual Action
-        run: git init --bare .action-fixture/destination.git
+        run: |
+          git init --bare .action-fixture/destination.git
+          # Local receive-pack does not inherit environment-based Git config.
+          # The runner mounts this temporary HOME into the Action container.
+          mkdir -p "$RUNNER_TEMP/_github_home"
+          git config --file "$RUNNER_TEMP/_github_home/.gitconfig" --add safe.directory /github/workspace/.action-fixture/destination.git
       - name: Publish with the actual Docker Action and runner outputs
         uses: ./
         id: publish
         env:
           INPUT_REMOTE: file:///github/workspace/.action-fixture/destination.git
-          # The fixture was created by the host runner; the Action runs as root.
-          GIT_CONFIG_COUNT: '1'
-          GIT_CONFIG_KEY_0: safe.directory
-          GIT_CONFIG_VALUE_0: /github/workspace/.action-fixture/destination.git
         with:
           branch: releases
           github_token: local-fixture-token
@@ -51,9 +52,6 @@ jobs:
         id: unchanged
         env:
           INPUT_REMOTE: file:///github/workspace/.action-fixture/destination.git
-          GIT_CONFIG_COUNT: '1'
-          GIT_CONFIG_KEY_0: safe.directory
-          GIT_CONFIG_VALUE_0: /github/workspace/.action-fixture/destination.git
         with:
           branch: releases
           github_token: local-fixture-token
