@@ -36,7 +36,7 @@ inputs:
     description: 'Do not push to repository (set to non-empty string to make dry-run)'
     default: ''
   working_directory:
-    description: 'Working directory for clone (default: random location in `${HOME}`)'
+    description: 'Empty working directory for clone, outside source folders (default: random location in `${HOME}`)'
     default: ''
   initial_source_folder:
     description: 'Source folder in workspace to copy if branch didnt exist (default: source_folder value)'
@@ -49,7 +49,7 @@ inputs:
     default: ''
 outputs:
   commit_hash:
-    description: 'Hash of the new commit'
+    description: 'Hash of the final commit (existing HEAD if no changes, local HEAD for dry_run)'
   working_directory:
     description: 'Working directory of temporary repository'
 runs:
